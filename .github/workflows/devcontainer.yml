@@ -1,0 +1,21 @@
+name: Dev container
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        permissions:
+            packages: write
+            contents: read
+        steps:
+            - uses: actions/checkout@v4
+            - name: Build image
+              run: docker build . --file .devcontainer/Dockerfile --tag ghcr.io/moveaxlab/oracle-db-job-queue-devcontainer:latest
+            - name: Log in to the registry
+              run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u $ --password-stdin
+            - name: Push image
+              run: docker push ghcr.io/moveaxlab/oracle-db-job-queue-devcontainer:latest
+
