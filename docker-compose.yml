@@ -4,13 +4,23 @@ services:
   devcontainer:
     image: ghcr.io/moveaxlab/oracle-db-job-queue-devcontainer:latest
     volumes:
-      - .:/workspaces/cotral-go:cached
+      - .:/workspaces/oracle-db-job-queue:cached
     command: sleep infinity
 
-  database:
+  oracle:
     image: container-registry.oracle.com/database/free:latest
     ports:
       - 1521:1521
       - 5500:5500
     environment:
       ORACLE_PWD: password
+
+  postgres:
+    image: kartoza/postgis:15
+    ports:
+      - 5432:5432
+    hostname: database
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASS: postgres
+      POSTGRES_DBNAME: test
