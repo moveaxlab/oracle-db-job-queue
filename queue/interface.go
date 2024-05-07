@@ -9,6 +9,7 @@ import (
 type txKey string
 
 type Email struct {
+	Id        int
 	Recipient string
 	Subject   string
 	Body      string
@@ -19,6 +20,8 @@ type Queue interface {
 	Truncate()
 	Begin(context.Context) context.Context
 	Commit(context.Context)
+	Count() int
 	Enqueue(context.Context, Email)
 	Dequeue(context.Context) optional.Optional[Email]
+	Delete(context.Context, Email)
 }

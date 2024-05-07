@@ -31,6 +31,19 @@ func NewPostgresQueue() Queue {
 	return &postgresQueue{db: db}
 }
 
+func (q *postgresQueue) Count() int {
+	row := q.db.QueryRow("SELECT COUNT(*) FROM email_outbox")
+	if row.Err() != nil {
+		log.Fatalf("failed to count rows: %v", row.Err())
+	}
+	var count int
+	err := row.Scan(&count)
+	if err != nil {
+		log.Fatalf("failed to scan row count: %v", err)
+	}
+	return count
+}
+
 func (q *postgresQueue) Truncate() {
 	_, err := q.db.Exec("TRUNCATE TABLE email_outbox")
 	if err != nil {
@@ -83,12 +96,12 @@ func (q *postgresQueue) Dequeue(ctx context.Context) optional.Optional[Email] {
 
 	var email Email
 
-	row := tx.QueryRow("SELECT recipient, subject, body FROM email_outbox LIMIT 1 FOR UPDATE SKIP LOCKED")
+	row := tx.QueryRow("SELECT id, recipient, subject, body FROM email_outbox LIMIT 1 FOR UPDATE SKIP LOCKED")
 	if row.Err() != nil {
 		log.Fatalf("failed to retrieve row: %v", err)
 	}
 
-	err = row.Scan(&email.Recipient, &email.Subject, &email.Body)
+	err = row.Scan(&email.Id, &email.Recipient, &email.Subject, &email.Body)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return optional.Empty[Email]()
@@ -98,4 +111,16 @@ func (q *postgresQueue) Dequeue(ctx context.Context) optional.Optional[Email] {
 	}
 
 	return optional.Of(&email)
+}
+
+func (q *postgresQueue) Delete(ctx context.Context, email Email) {
+	tx, ok := ctx.Value(postgresTxKey).(*sql.Tx)
+	if !ok {
+		log.Fatal("cannot delete outside of a transaction")
+	}
+
+	_, err := tx.Exec("DELETE FROM email_outbox WHERE id = $1", email.Id)
+	if err != nil {
+		log.Fatalf("failed to delete email %d: %v", email.Id, err)
+	}
 }

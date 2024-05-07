@@ -19,5 +19,6 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/exp v0.0.0-20240318143956-a85f2c67cd81 // indirect
+	golang.org/x/time v0.5.0
 	google.golang.org/protobuf v1.33.0 // indirect
 )

@@ -3,21 +3,25 @@ package queue
 import (
 	"context"
 	"fmt"
-	"log"
+	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/suite"
+	"golang.org/x/time/rate"
 )
 
 func TestOracleQueue(t *testing.T) {
 	s := new(BaseTestSuite)
+	s.name = "oracle"
 	s.constructor = NewOracleQueue
 	suite.Run(t, s)
 }
 
 func TestPostgresQueue(t *testing.T) {
 	s := new(BaseTestSuite)
+	s.name = "postgresql"
 	s.constructor = NewPostgresQueue
 	suite.Run(t, s)
 }
@@ -25,6 +29,7 @@ func TestPostgresQueue(t *testing.T) {
 type BaseTestSuite struct {
 	suite.Suite
 
+	name        string
 	constructor func() Queue
 	q           Queue
 }
@@ -46,30 +51,61 @@ func (s *BaseTestSuite) TestNothingToDo() {
 	s.False(maybeEmail.IsPresent())
 }
 
+const maxRpm = 10_000
+const limit rate.Limit = rate.Limit(maxRpm) / 60
+const workers = 100
+const workTime = 100
+
 func (s *BaseTestSuite) TestBenchmark() {
-	for i := 0; i < 1000; i++ {
-		s.q.Enqueue(context.Background(), Email{
-			Recipient: fmt.Sprintf("test_%d", i),
-			Subject:   "hello",
-			Body:      "world",
-		})
+	l := rate.NewLimiter(limit, 1)
+
+	wg := &sync.WaitGroup{}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		ctx := context.Background()
+
+		i := 0
+
+		for i < 1000 {
+			err := l.Wait(ctx)
+			s.Nil(err)
+
+			s.q.Enqueue(ctx, Email{
+				Recipient: fmt.Sprintf("test_%d", i),
+				Subject:   "hello",
+				Body:      "world",
+			})
+
+			i++
+		}
+	}()
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			for {
+				ctx := s.q.Begin(context.Background())
+				start := time.Now()
+				maybeEmail := s.q.Dequeue(ctx)
+				fmt.Println(time.Since(start).Milliseconds())
+				time.Sleep(time.Duration(workTime+rand.Intn(workTime/2)) * time.Millisecond)
+				maybeEmail.IfPresent(func(email *Email) {
+					s.q.Delete(ctx, *email)
+				})
+				s.q.Commit(ctx)
+				if maybeEmail.IsEmpty() {
+					return
+				}
+			}
+		}()
 	}
 
-	txs := make([]context.Context, 0, 100)
-
-	for i := 0; i < 100; i++ {
-		ctx := s.q.Begin(context.Background())
-		txs = append(txs, ctx)
-
-		start := time.Now()
-		maybeEmail := s.q.Dequeue(ctx)
-		log.Printf("dequeue #%d done in %v", i, time.Since(start))
-		s.True(maybeEmail.IsPresent())
-	}
-
-	for _, tx := range txs {
-		s.q.Commit(tx)
-	}
+	wg.Wait()
 }
 
 func (s *BaseTestSuite) TestWorkDivision() {
